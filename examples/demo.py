@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from dslguard import expr, sqlguard  # noqa: E402
+from dslguard import expr, guard, policy as policy_mod, sqlguard, values  # noqa: E402
 
 
 def title(text):
@@ -112,3 +112,52 @@ print("   ", sqlguard.to_sql(ast).replace("\n", " "))
 print()
 print("为什么必须注到最内层：如果注在外层，SUM 会先按全量算完再过滤，")
 print("用户拿「总计 − 可见明细」就能反推出看不到的部分 —— 这是推断式越权。")
+
+
+title("⑦ 值层校验：结构合法 ≠ 值干净")
+dirty = [
+    ("a\x00b", "含 NUL"),
+    ("a\x01b", "含控制字符"),
+    ("a" * 1100, "超长字符串"),
+    (float("nan"), "NaN"),
+    (float("inf"), "Infinity"),
+    (2**70, "超出 BIGINT"),
+    ([1, 2], "复合类型"),
+]
+for value, why in dirty:
+    try:
+        values.check_value(value)
+        print(f"  - {why}：竟然通过了（不该发生）")
+    except values.ValueRejected as e:
+        print(f"  - {why}：{e}")
+
+
+title("⑧ 参数化输出：值不进 SQL 文本")
+node = expr.parse("region == '华东' and amount > 1000")
+sql_text, params = expr.to_sql_with_params(node)
+print(f"  SQL    : {sql_text}")
+print(f"  params : {params}")
+print("  值以占位符形式留给驱动绑定，不再依赖手工转义。")
+print(f"  对比直接渲染：{expr.to_sql(node)}")
+
+
+title("⑨ 一站式 guard + 生产护栏")
+policy = policy_mod.GuardPolicy(
+    allowed_tables=frozenset({"sales"}),
+    max_joins=2,
+    max_in_list=3,
+    require_limit=True,
+    max_limit=1000,
+)
+cases = [
+    "SELECT region_id, SUM(amount) FROM sales GROUP BY region_id LIMIT 100",
+    "SELECT region_id, SUM(amount) FROM sales GROUP BY region_id",
+    "SELECT * FROM sales LIMIT 999999",
+    "SELECT region_id FROM sales WHERE region_id IN ('a','b','c','d') LIMIT 10",
+    "SELECT * FROM payroll LIMIT 10",
+    "SELECT 1 FROM sales LIMIT 10; DROP TABLE sales",
+]
+for sql in cases:
+    result = guard(sql, policy)
+    verdict = "通过" if result.ok else "、".join(result.rules)
+    print(f"  {sql[:56]:<58} → {verdict}")
