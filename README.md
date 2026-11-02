@@ -1,5 +1,7 @@
 # dsl-guard
 
+[![tests](https://github.com/dijundev/dsl-guard/actions/workflows/tests.yml/badge.svg)](https://github.com/dijundev/dsl-guard/actions/workflows/tests.yml)
+
 配置驱动的系统里，「表达式」「SQL」「值」是三处最容易变成事故的入口。这个库把三道**确定性边界**摆在那里：
 
 | 层 | 防什么 | 怎么做 |
