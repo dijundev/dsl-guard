@@ -18,6 +18,7 @@
 import re
 
 from .errors import ExprError
+from .values import ValueRejected, check_value
 
 MAX_LEN = 512          # 表达式长度上限
 MAX_DEPTH = 24         # 语法嵌套深度上限
@@ -367,26 +368,41 @@ def _render_value(value):
     return f"'{escaped}'"
 
 
-def _sql_func(node):
+def _sql_func(node, params=None):
     name = node.name
     if name == "count_distinct":
-        return f"COUNT(DISTINCT {to_sql(node.args[0])})"
-    rendered = ", ".join(to_sql(a) for a in node.args)
+        return f"COUNT(DISTINCT {to_sql(node.args[0], params)})"
+    rendered = ", ".join(to_sql(a, params) for a in node.args)
     return f"{name.upper()}({rendered})"
 
 
-def to_sql(node):
-    """AST → SQL 片段。只产出只读表达式，不含任何语句级关键字。"""
+def to_sql(node, params=None):
+    """AST → SQL 片段。只产出只读表达式，不含任何语句级关键字。
+
+    `params` 决定字面量怎么处理：
+
+    - **None（默认）**：字面量直接渲染进 SQL 文本。只适合本地调试、常量对照，
+      或确实不含外部输入的场景。
+    - **传一个 list**：字面量先过 `check_value` 校验，再替换成 `%s` 占位符
+      并追加进这个 list，最终交给数据库驱动做参数绑定。
+
+    生产环境应该用后者。手工转义（`replace("'", "''")`）在 NO_BACKSLASH_ESCAPES
+    关闭、或 GBK 这类字符集下都可能出错，参数化才是根治。
+    """
     if isinstance(node, Lit):
-        return _render_value(node.value)
+        if params is None:
+            return _render_value(node.value)
+        check_value(node.value)
+        params.append(node.value)
+        return "%s"
     if isinstance(node, Col):
         return f"{node.table}.{node.name}" if node.table else node.name
     if isinstance(node, Call):
-        return _sql_func(node)
+        return _sql_func(node, params)
     if isinstance(node, Unary):
         if node.op == "not":
-            return f"(NOT {to_sql(node.operand)})"
-        return f"({node.op}{to_sql(node.operand)})"
+            return f"(NOT {to_sql(node.operand, params)})"
+        return f"({node.op}{to_sql(node.operand, params)})"
     if isinstance(node, Binary):
         op = {"==": "=", "<>": "!=", "&&": "AND", "||": "OR"}.get(node.op, node.op)
         if node.op == "and":
@@ -395,13 +411,19 @@ def to_sql(node):
             op = "OR"
         if node.op == "like":
             op = "LIKE"
-        return f"({to_sql(node.left)} {op} {to_sql(node.right)})"
+        return f"({to_sql(node.left, params)} {op} {to_sql(node.right, params)})"
     if isinstance(node, ListLit):
-        return "(" + ", ".join(to_sql(i) for i in node.items) + ")"
+        return "(" + ", ".join(to_sql(i, params) for i in node.items) + ")"
     if isinstance(node, InList):
         neg = "NOT " if node.negated else ""
-        return f"({to_sql(node.expr)} {neg}IN {to_sql(node.items)})"
+        return f"({to_sql(node.expr, params)} {neg}IN {to_sql(node.items, params)})"
     raise ExprError(f"无法编译的节点：{type(node).__name__}")
+
+
+def to_sql_with_params(node):
+    """编译成 (SQL 片段, 参数列表)。字面量全部变成 `%s`，值单独带走。"""
+    params = []
+    return to_sql(node, params), params
 
 
 _EVAL_SCALARS = {
