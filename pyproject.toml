@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dsl-guard"
+dynamic = ["version"]
+description = "Deterministic boundaries for config-driven systems: an expression DSL with an AST whitelist (no eval), a read-only SQL guard with permission pushdown, and value-level validation."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "刘迪君" }]
+keywords = ["dsl", "parser", "ast", "sql", "security", "whitelist", "no-eval"]
+dependencies = ["sqlglot>=25.30.0"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Database",
+    "Topic :: Security",
+    "Topic :: Software Development :: Compilers",
+    "Typing :: Typed",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0"]
+
+[project.urls]
+Homepage = "https://github.com/dijundev/dsl-guard"
+Repository = "https://github.com/dijundev/dsl-guard"
+Issues = "https://github.com/dijundev/dsl-guard/issues"
+
+[tool.setuptools.dynamic]
+version = { attr = "dslguard.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["dslguard*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
